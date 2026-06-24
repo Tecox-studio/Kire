@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KIRE - Apps & Games Appstore</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Phosphor Icons CDN -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f8fafc; 
+            overflow-x: hidden; 
+        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .toast-enter { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideUp { 
+            from { transform: translateY(100%) scale(0.95); opacity: 0; } 
+            to { transform: translateY(0) scale(1); opacity: 1; } 
+        }
+        /* Fluid transitions for sliding carousel banners */
+        .carousel-container {
+            display: flex;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app" class="flex h-screen overflow-hidden w-screen">
+        <!-- SPA viewports render dynamically here -->
+        <div class="flex items-center justify-center w-full h-full bg-white">
+            <div class="flex flex-col items-center space-y-4">
+                <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <p class="text-sm font-semibold text-slate-500 animate-pulse">Initializing KIRE Secure Cloud...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Toast Notifications Overlay -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[250] flex flex-col gap-3"></div>
+
+    <script type="module">
+        // --- STREAMING_CHUNK: Importing official production-ready Firebase SDK scripts ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithPopup, 
+            GoogleAuthProvider, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword, 
+            signOut,
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            getDoc, 
+            setDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            collection, 
+            query, 
+            addDoc, 
+            getDocs 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Provided Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCUVhNYsiqsqJou9In33MmHZf6qxEI0y6w",
+            authDomain: "kire-c4bc9.firebaseapp.com",
+            databaseURL: "https://kire-c4bc9-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "kire-c4bc9",
+            storageBucket: "kire-c4bc9.firebasestorage.app",
+            messagingSenderId: "470102182672",
+            appId: "1:470102182672:web:6703aeb6dbba08dbfdf395",
+            measurementId: "G-C8X2ZC89WB"
+        };
+
+        // Initialize App & Services
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(auth);
+        const googleProvider = new GoogleAuthProvider();
+
+        // Strict Path Variables following Rule 1
+        const appId = "kire-c4bc9-app";
+        const publicPath = (coll) => collection(db, 'artifacts', appId, 'public', 'data', coll);
+
+        // Global App State
+        let state = {
+            view: 'home', // home, app_details, account, publisher, admin_login, admin
+            searchQuery: '',
+            currentUser: { id: null, name: 'Guest', email: '', isPublisher: false, publisherId: null },
+            apps: [],
+            publishers: [],
+            reviews: [],
+            bannerRequests: [],
+            currentAppId: null,
+            currentHeroSlideIndex: 0,
+            carouselInterval: null,
+            
+            // Onboarding & Auth States
+            authMode: 'login', // login, signup
+            authEmail: '',
+            authPassword: '',
+            pubForm: { name: '', email: '', avatarUrl: '' },
+            
+            // Publisher App Upload Form States
+            appForm: { name: '', pkg: '', shortDesc: '', fullDesc: '', category: 'Action', price: 'Free', apkLink: '', apkFileName: '', logoUrl: '', bannerUrl: '' },
+            reviewForm: { rating: 5, comment: '' },
+            
+            pubView: 'dashboard', // dashboard, publish, reviews
+            adminView: 'apps', // apps, publishers, banners
+            adminEditApp: null,
+            expandedPublisherId: null
+        };
+
+        // Seed data for clean initial startup
+        const defaultAppsSeed = [
+            { id: 'app_1', publisherId: 'pub1', name: 'WhatsApp Messenger', packageName: 'com.whatsapp', shortDescription: 'Simple. Personal. Real-time messaging.', fullDescription: 'WhatsApp from Meta is a FREE messaging and video calling app used by over 2B people. It’s simple, reliable, and private.', category: 'Social', price: 'Free', logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg', bannerUrl: 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?auto=format&fit=crop&q=80&w=1000', rating: 4.8, reviewsCount: 185, isFeatured: true, apkLink: '' },
+            { id: 'app_2', publisherId: 'pub1', name: 'Instagram', packageName: 'com.instagram', shortDescription: 'Bring you closer to the people and things you love.', fullDescription: 'Connect with friends, share what you are up to, or see what is new from others all over the world.', category: 'Social', price: 'Free', logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg', bannerUrl: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&q=80&w=1000', rating: 4.5, reviewsCount: 132, isFeatured: true, apkLink: '' },
+            { id: 'app_3', publisherId: 'pub2', name: 'PUBG MOBILE', packageName: 'com.tencent.ig', shortDescription: 'Epic mobile battle royale shooter.', fullDescription: 'PUBG MOBILE is the original Battle Royale mobile game and one of the best mobile shooting games.', category: 'Action', price: 'Free', logoUrl: 'https://play-lh.googleusercontent.com/JRd05pyBH41qjgsJuWduRJpDeZG0Hnb0yq2GU500Z9E8N0B4WwU0E2H2W4N7e2V3eA=w240-h480-rw', bannerUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=1000', rating: 4.6, reviewsCount: 45, isFeatured: true, apkLink: '' },
+            { id: 'app_4', publisherId: 'pub2', name: 'Clash of Clans', packageName: 'com.supercell.clashofclans', shortDescription: 'Epic strategy card-battle gameplay.', fullDescription: 'Join millions of players worldwide as you build your village, raise a clan, and compete in epic Clan Wars!', category: 'Strategy', price: 'Free', logoUrl: 'https://play-lh.googleusercontent.com/LByrur1mTmPeLR0ig_ij6b70yZ8vz6IAR-94lX3kZ15gq73V7I4mD5L1y_w3x3x3x3x3=w240-h480-rw', bannerUrl: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=1000', rating: 4.6, reviewsCount: 60, isFeatured: false, apkLink: '' }
+        ];
+
+        // --- STREAMING_CHUNK: Authenticating secure credentials and launching real-time listeners ---
+        async function authenticateAndSync() {
+            try {
+                // Initialize database collection listeners
+                onSnapshot(publicPath('apps'), (snapshot) => {
+                    let appsList = [];
+                    snapshot.forEach(doc => appsList.push(doc.data()));
+                    if (appsList.length === 0) {
+                        defaultAppsSeed.forEach(async (appItem) => {
+                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'apps', appItem.id), appItem);
+                        });
+                    } else {
+                        state.apps = appsList;
+                        render();
+                    }
+                }, (error) => console.error("Apps listener error: ", error));
+
+                onSnapshot(publicPath('publishers'), (snapshot) => {
+                    let pubsList = [];
+                    snapshot.forEach(doc => pubsList.push(doc.data()));
+                    state.publishers = pubsList;
+                    syncCurrentUserPublisherStatus();
+                    render();
+                }, (error) => console.error("Publishers listener error: ", error));
+
+                onSnapshot(publicPath('reviews'), (snapshot) => {
+                    let reviewsList = [];
+                    snapshot.forEach(doc => reviewsList.push(doc.data()));
+                    state.reviews = reviewsList;
+                    render();
+                }, (error) => console.error("Reviews listener error: ", error));
+
+                onSnapshot(publicPath('bannerRequests'), (snapshot) => {
+                    let requestsList = [];
+                    snapshot.forEach(doc => requestsList.push(doc.data()));
+                    state.bannerRequests = requestsList;
+                    render();
+                }, (error) => console.error("Banner requests listener error: ", error));
+
+                // Real Fireauth listener
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        state.currentUser.id = user.uid;
+                        state.currentUser.name = user.displayName || user.email.split('@')[0];
+                        state.currentUser.email = user.email || '';
+                        syncCurrentUserPublisherStatus();
+                    } else {
+                        state.currentUser = { id: null, name: 'Guest', email: '', isPublisher: false, publisherId: null };
+                    }
+                    render();
+                });
+
+            } catch (err) {
+                showToast("Connection to Firebase was interrupted.", "error");
+                console.error(err);
+            }
+        }
+
+        // Synchronize logged-in user with their Firestore publisher registration
+        function syncCurrentUserPublisherStatus() {
+            if (!state.currentUser.id) return;
+            const myPubProfile = state.publishers.find(p => p.id === state.currentUser.id);
+            if (myPubProfile) {
+                state.currentUser.isPublisher = true;
+                state.currentUser.publisherId = myPubProfile.id;
+                state.currentUser.name = myPubProfile.name;
+            } else {
+                state.currentUser.isPublisher = false;
+                state.currentUser.publisherId = null;
+            }
+        }
+
+        // Custom notification engine
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast-enter flex items-center p-4 rounded-xl shadow-lg text-white font-medium ${type === 'success' ? 'bg-slate-900 border border-slate-800' : 'bg-red-600'}`;
+            toast.innerHTML = `
+                <i class="ph-fill ${type === 'success' ? 'ph-check-circle text-emerald-400' : 'ph-warning-circle'} text-xl mr-3"></i>
+                <span class="text-sm font-semibold tracking-wide">${message}</span>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-20px) scale(0.95)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function fileToBase64(file, callback) {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => callback(reader.result);
+            reader.onerror = error => showToast("Error loading file binary", "error");
+        }
+
+        // Router & Navigation
+        window.navigate = (view, appIdParam = null) => {
+            if (view === 'app_details' && appIdParam) {
+                window.location.hash = `#app=${appIdParam}`;
+            } else if (view === 'home') {
+                window.location.hash = ``;
+            } else {
+                window.location.hash = `#${view}`;
+            }
+        };
+
+        window.handleSearch = (val) => { state.searchQuery = val; render(); };
+
+        window.copyShareLink = (appIdParam) => {
+            const link = `${window.location.origin}${window.location.pathname}#app=${appIdParam}`;
+            const el = document.createElement('textarea');
+            el.value = link;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            showToast("App shareable link copied!");
+        };
+
+        // Routing Hash Handler
+        function handleRouting() {
+            const hash = window.location.hash;
+            if (hash === '#tecox-admin-2010') {
+                state.view = 'admin_login';
+            } else if (hash.startsWith('#app=')) {
+                const appIdParam = hash.split('=')[1];
+                state.view = 'app_details';
+                state.currentAppId = appIdParam;
+            } else if (hash === '#account') {
+                state.view = 'account';
+            } else if (hash === '#publisher') {
+                state.view = 'publisher';
+            } else {
+                state.view = 'home';
+                state.currentAppId = null;
+            }
+            render();
+        }
+
+        window.addEventListener('hashchange', handleRouting);
+        window.addEventListener('DOMContentLoaded', () => {
+            authenticateAndSync();
+            handleRouting();
+        });
+
+        // --- STREAMING_CHUNK: Automated Rotating Multi-Banner Carousel Engine ---
+        function startCarouselRotation() {
+            if (state.carouselInterval) clearInterval(state.carouselInterval);
+            state.carouselInterval = setInterval(() => {
+                const featuredApps = state.apps.filter(a => a.isFeatured);
+                const bannerCount = featuredApps.length || 1;
+                state.currentHeroSlideIndex = (state.currentHeroSlideIndex + 1) % bannerCount;
+                
+                const sliderContainer = document.getElementById('hero-slider');
+                if (sliderContainer) {
+                    const offset = state.currentHeroSlideIndex * -100;
+                    sliderContainer.style.transform = `translateX(${offset}%)`;
+                    
+                    const dots = document.querySelectorAll('.carousel-dot');
+                    dots.forEach((dot, idx) => {
+                        if (idx === state.currentHeroSlideIndex) {
+                            dot.classList.add('bg-white', 'w-8');
+                            dot.classList.remove('bg-white/45', 'w-2.5');
+                        } else {
+                            dot.classList.add('bg-white/45', 'w-2.5');
+                            dot.classList.remove('bg-white', 'w-8');
+                        }
+                    });
+                }
+            }, 3500);
+        }
+
+        // --- STREAMING_CHUNK: Base UI Components Assembly ---
+        const Sidebar = () => `
+            <div class="w-64 bg-white h-screen border-r border-slate-100 flex flex-col hidden md:flex flex-shrink-0">
+                <div class="p-6 flex items-center space-x-2 cursor-pointer" onclick="navigate('home')">
+                    <h1 class="text-3xl font-black text-blue-600 tracking-tighter">KIRE</h1>
+                </div>
+                <div class="flex-1 overflow-y-auto px-4 space-y-1 scrollbar-hide">
+                    <button onclick="navigate('home')" class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all ${state.view === 'home' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}"><i class="ph ${state.view === 'home' ? 'ph-house-fill' : 'ph-house'} text-xl"></i><span class="text-sm">Home</span></button>
+                    <button onclick="navigate('home')" class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all text-slate-600 hover:bg-slate-50"><i class="ph ph-squares-four text-xl"></i><span class="text-sm">Apps</span></button>
+                    <button onclick="navigate('home')" class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all text-slate-600 hover:bg-slate-50"><i class="ph ph-game-controller text-xl"></i><span class="text-sm">Games</span></button>
+                    
+                    <div class="pt-4 pb-2"><p class="text-[10px] font-bold text-slate-400 uppercase px-3 tracking-wider">Discover</p></div>
+                    <button class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all text-slate-600 hover:bg-slate-50"><i class="ph ph-chart-line-up text-xl"></i><span class="text-sm">Top charts</span></button>
+                    <button class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all text-slate-600 hover:bg-slate-50"><i class="ph ph-stack text-xl"></i><span class="text-sm">Categories</span></button>
+                    <button class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all text-slate-600 hover:bg-slate-50"><i class="ph ph-medal text-xl"></i><span class="text-sm">Editor's choice</span></button>
+                    <button class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all text-slate-600 hover:bg-slate-50"><i class="ph ph-tag text-xl"></i><span class="text-sm">Offers</span></button>
+                    
+                    <div class="pt-4 pb-2"><p class="text-[10px] font-bold text-slate-400 uppercase px-3 tracking-wider">Profile Workspace</p></div>
+                    <button onclick="navigate('account')" class="w-full flex items-center space-x-3 p-3 rounded-xl transition-all ${state.view === 'account' || state.view === 'publisher' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}"><i class="ph ${state.view === 'account' ? 'ph-user-fill' : 'ph-user'} text-xl"></i><span class="text-sm">Developer Sign In</span></button>
+                </div>
+                
+                <div class="p-4 m-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                    <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white mb-2"><i class="ph-fill ph-sketch-logo text-lg"></i></div>
+                    <h4 class="font-bold text-blue-900 text-xs">KIRE Premium</h4>
+                    <p class="text-[10px] text-blue-700/80 mt-1 mb-3">No ads, extra rewards and more!</p>
+                    <button class="w-full bg-blue-600 text-white text-[10px] font-bold py-2 rounded-lg hover:bg-blue-700 transition-colors">Learn more</button>
+                </div>
+            </div>
+        `;
+
+        const Topbar = () => `
+            <div class="sticky top-0 z-40 bg-white/95 border-b border-slate-100 p-4 flex items-center justify-between">
+                <div class="flex items-center flex-1 max-w-2xl gap-4">
+                    <div class="relative w-full">
+                        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg"></i>
+                        <input type="text" placeholder="Search for apps & games" value="${state.searchQuery}" onkeyup="handleSearch(this.value)" class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-full text-xs outline-none focus:bg-white focus:border-blue-500 transition-all">
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3 ml-4">
+                    <button class="text-slate-500 hover:bg-slate-50 p-2 rounded-full"><i class="ph ph-bell text-lg"></i></button>
+                    <button onclick="navigate('account')" class="flex items-center space-x-2 p-1 pr-3 rounded-full hover:bg-slate-50 border border-slate-100 transition-all">
+                        <div class="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs">${state.currentUser.name.charAt(0)}</div>
+                        <span class="text-xs font-semibold text-slate-700 hidden sm:block">${state.currentUser.name}</span>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        const AppIconComponent = (url, name, cls) => `
+            <div class="${cls} rounded-2xl overflow-hidden bg-white shadow-sm flex-shrink-0 border border-slate-100 flex items-center justify-center">
+                ${url ? `<img src="${url}" class="w-full h-full object-cover">` : `<span class="font-extrabold text-blue-600 text-xl">${name.charAt(0)}</span>`}
+            </div>
+        `;
+
+        // --- STREAMING_CHUNK: Render dynamic home store layout with sliding advertising slots ---
+        const HomeView = () => {
+            const featuredApps = state.apps.filter(a => a.isFeatured);
+            const displayApps = state.apps.filter(a => a.name.toLowerCase().includes(state.searchQuery.toLowerCase()));
+            const topApps = displayApps.filter(a => a.category === 'Social' || a.category === 'Productivity').slice(0, 5);
+            const topGames = displayApps.filter(a => ['Action', 'Strategy', 'Racing', 'Puzzle'].includes(a.category)).slice(0, 5);
+            
+            const cats = [
+                {n:'Action', i:'🚀'}, {n:'Adventure', i:'🧭'}, {n:'Racing', i:'🏎️'},
+                {n:'Puzzle', i:'🧩'}, {n:'Strategy', i:'👑'}, {n:'Sports', i:'⚽'}
+            ];
+
+            return `
+                <div class="max-w-6xl mx-auto p-6 md:p-8 space-y-10 pb-20">
+                    
+                    <!-- Sliding Advertising Banner -->
+                    <div class="relative w-full h-[320px] rounded-[2rem] overflow-hidden shadow-xl group bg-slate-950">
+                        <div id="hero-slider" class="carousel-container h-full w-full">
+                            ${featuredApps.length ? featuredApps.map(app => `
+                                <div class="w-full h-full flex-shrink-0 relative cursor-pointer" onclick="navigate('app_details', '${app.id}')" style="width: 100%;">
+                                    <img src="${app.bannerUrl}" class="absolute inset-0 w-full h-full object-cover">
+                                    <div class="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-950/60 to-transparent"></div>
+                                    <div class="absolute inset-0 p-8 md:p-12 flex flex-col justify-center max-w-lg">
+                                        <span class="bg-blue-600 text-white text-[9px] font-bold px-3 py-1 rounded-full w-max flex items-center space-x-1 mb-4">
+                                            <i class="ph-fill ph-megaphone text-white mr-1"></i> <span class="tracking-widest">FEATURED AD</span>
+                                        </span>
+                                        <h2 class="text-3xl md:text-5xl font-black text-white tracking-tight leading-none mb-3 truncate">${app.name}</h2>
+                                        <p class="text-slate-300 text-sm line-clamp-2 mb-6">${app.shortDescription}</p>
+                                        <div class="flex items-center space-x-3">
+                                            <button class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3 px-8 rounded-full transition-colors shadow-lg">Install Now</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <div class="w-full h-full flex-shrink-0 relative">
+                                    <div class="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center text-white text-center p-8">
+                                        <i class="ph ph-storefront text-5xl text-blue-500 mb-2"></i>
+                                        <h2 class="text-2xl font-black">Welcome to KIRE Store</h2>
+                                        <p class="text-slate-400 text-xs max-w-md mt-1">Become a verified publisher, submit APK packages and request free sliding ads now!</p>
+                                    </div>
+                                </div>
+                            `}
+                        </div>
+
+                        <!-- Dots indicator -->
+                        <div class="absolute bottom-5 left-12 flex space-x-2 z-10">
+                            ${featuredApps.map((_, idx) => `
+                                <div class="carousel-dot h-2.5 rounded-full transition-all duration-300 ${idx === 0 ? 'bg-white w-8' : 'bg-white/45 w-2.5'}"></div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Pills Categories -->
+                    <div class="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide">
+                        ${cats.map(c => `
+                            <button class="flex items-center space-x-2 px-5 py-2.5 rounded-full border border-slate-100 bg-white hover:bg-slate-50 transition-colors shadow-sm flex-shrink-0">
+                                <span class="text-sm font-bold text-slate-700">${c.i} ${c.n}</span>
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    <!-- Live Released Apps -->
+                    <section>
+                        <div class="flex justify-between items-center mb-6">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></span>
+                                <h3 class="text-lg font-black text-slate-800 tracking-tight">Newly Released Apps & Games</h3>
+                            </div>
+                            <span class="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold">Realtime database</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                            ${state.apps.slice(0, 8).map(app => `
+                                <div onclick="navigate('app_details', '${app.id}')" class="bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all cursor-pointer overflow-hidden flex flex-col group">
+                                    <div class="h-32 w-full bg-slate-100 relative overflow-hidden">
+                                        ${app.bannerUrl ? `<img src="${app.bannerUrl}" class="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500">` : `<div class="w-full h-full flex items-center justify-center text-slate-300"><i class="ph ph-game-controller text-4xl"></i></div>`}
+                                    </div>
+                                    <div class="p-4 flex items-center space-x-3 relative">
+                                        ${AppIconComponent(app.logoUrl, app.name, 'w-12 h-12 -mt-8 border-2 border-white absolute z-10')}
+                                        <div class="overflow-hidden pl-14 w-full">
+                                            <h4 class="font-bold text-slate-800 truncate text-xs">${app.name}</h4>
+                                            <div class="flex justify-between items-center mt-0.5">
+                                                <span class="text-[10px] text-slate-400 font-semibold uppercase">${app.category}</span>
+                                                <span class="flex items-center text-[10px] text-amber-500 font-bold"><i class="ph-fill ph-star mr-0.5"></i> ${app.rating || 'New'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </section>
+
+                    <!-- Top Free Apps -->
+                    ${topApps.length ? `
+                        <section>
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-lg font-black text-slate-800 tracking-tight">Top social apps</h3>
+                                <button class="text-blue-600 text-xs font-bold hover:underline">See all</button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                                ${topApps.map(app => `
+                                    <div onclick="navigate('app_details', '${app.id}')" class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center space-x-4 group">
+                                        ${AppIconComponent(app.logoUrl, app.name, 'w-14 h-14 group-hover:scale-105 transition-transform')}
+                                        <div class="overflow-hidden flex-1">
+                                            <h4 class="font-bold text-slate-800 text-sm truncate leading-tight">${app.name}</h4>
+                                            <p class="text-[11px] text-slate-500 truncate mt-0.5">${app.category}</p>
+                                            <div class="flex items-center text-[10px] text-slate-500 mt-1 space-x-2">
+                                                <span class="flex items-center text-amber-500"><i class="ph-fill ph-star mr-1"></i> ${app.rating}</span>
+                                                <span>• Active</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </section>
+                    ` : ''}
+
+                    <!-- Top Mobile Games -->
+                    ${topGames.length ? `
+                        <section>
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-lg font-black text-slate-800 tracking-tight">Top Strategy & Action Games</h3>
+                                <button class="text-blue-600 text-xs font-bold hover:underline">See all</button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                                ${topGames.map(app => `
+                                    <div onclick="navigate('app_details', '${app.id}')" class="bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col group">
+                                        <div class="h-36 w-full bg-slate-50 relative overflow-hidden">
+                                            ${app.bannerUrl ? `<img src="${app.bannerUrl}" class="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500">` : `<div class="w-full h-full flex items-center justify-center text-slate-300"><i class="ph ph-game-controller text-4xl"></i></div>`}
+                                        </div>
+                                        <div class="p-4 flex items-center space-x-3 relative">
+                                            ${AppIconComponent(app.logoUrl, app.name, 'w-12 h-12 -mt-8 border-2 border-white absolute z-10')}
+                                            <div class="overflow-hidden pl-14 w-full">
+                                                <h4 class="font-bold text-slate-800 truncate text-xs">${app.name}</h4>
+                                                <div class="flex justify-between items-center mt-0.5">
+                                                    <span class="text-[10px] text-slate-400 font-semibold uppercase">${app.category}</span>
+                                                    <span class="flex items-center text-[10px] text-amber-500 font-bold"><i class="ph-fill ph-star mr-0.5"></i> ${app.rating}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </section>
+                    ` : ''}
+                </div>
+            `;
+        };
+
+        // --- STREAMING_CHUNK: Detail client review portals processing ---
+        const AppDetailsView = () => {
+            const app = state.apps.find(a => a.id === state.currentAppId);
+            if (!app) return `<div class="p-12 text-center text-slate-500">App not found.</div>`;
+            const appReviews = state.reviews.filter(r => r.appId === app.id);
+
+            window.submitReview = async () => {
+                if(!state.reviewForm.comment.trim()) return showToast("Please write a review comment", "error");
+                
+                const newRevId = `rev_${Date.now()}`;
+                const payload = {
+                    id: newRevId, 
+                    appId: app.id, 
+                    userName: state.currentUser.name || 'Anonymous User',
+                    rating: state.reviewForm.rating, 
+                    comment: state.reviewForm.comment, 
+                    date: new Date().toISOString()
+                };
+
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reviews', newRevId), payload);
+                state.reviewForm.comment = '';
+                showToast("Feedback submitted successfully!");
+            };
+
+            window.setRating = (num) => { state.reviewForm.rating = num; render(); };
+            window.setReviewText = (val) => { state.reviewForm.comment = val; };
+
+            window.handleApkDownload = () => {
+                if(app.apkLink) {
+                    showToast(`Preparing secure package download...`);
+                    const a = document.createElement('a');
+                    a.href = app.apkLink;
+                    a.download = `${app.name.toLowerCase().replace(/\s+/g, '_')}_package.apk`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                } else {
+                    showToast("No secure APK package linked. Check back later!", "error");
+                }
+            };
+
+            return `
+                <div class="max-w-4xl mx-auto p-6 md:p-8 pb-24">
+                    <button onclick="navigate('home')" class="flex items-center space-x-2 text-slate-500 hover:text-slate-800 mb-6 font-bold text-sm transition-colors">
+                        <i class="ph ph-arrow-left"></i> <span>Store Home</span>
+                    </button>
+
+                    <div class="bg-white rounded-[2rem] p-6 md:p-10 shadow-sm border border-slate-100 flex flex-col md:flex-row gap-8 items-start relative overflow-hidden">
+                        ${app.bannerUrl ? `<img src="${app.bannerUrl}" class="absolute top-0 left-0 w-full h-40 object-cover opacity-10 blur-md">` : ''}
+                        <div class="relative z-10">
+                            ${AppIconComponent(app.logoUrl, app.name, 'w-28 h-28 md:w-36 md:h-36 shadow-lg border-4 border-white rounded-[1.75rem]')}
+                        </div>
+                        <div class="flex-1 relative z-10">
+                            <h1 class="text-2xl md:text-4xl font-black text-slate-800 mb-1 leading-tight tracking-tight">${app.name}</h1>
+                            <p class="text-sm text-slate-500 mb-4 font-bold uppercase tracking-wider">${app.packageName} • ${app.category}</p>
+                            
+                            <div class="flex items-center space-x-6 text-xs mb-6">
+                                <div class="flex flex-col">
+                                    <span class="font-extrabold flex items-center text-lg text-slate-800"><i class="ph-fill ph-star text-amber-400 mr-1"></i> ${app.rating || 'N/A'}</span>
+                                    <span class="text-slate-400 font-medium">${appReviews.length} User Ratings</span>
+                                </div>
+                                <div class="h-8 w-px bg-slate-200"></div>
+                                <div class="flex flex-col">
+                                    <span class="font-extrabold text-lg text-slate-800">${app.price === 'Free' ? 'Free' : app.price}</span>
+                                    <span class="text-slate-400 font-medium">Pricing Model</span>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-wrap gap-3">
+                                ${app.apkLink ? `
+                                    <button onclick="handleApkDownload()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3 px-8 rounded-xl transition-all flex items-center space-x-2 shadow-lg shadow-blue-600/20">
+                                        <i class="ph-bold ph-download-simple text-sm"></i> <span>Download APK Binary</span>
+                                    </button>
+                                ` : `
+                                    <button class="bg-slate-200 text-slate-400 cursor-not-allowed font-bold text-xs py-3 px-8 rounded-xl flex items-center space-x-2">
+                                        <i class="ph-bold ph-download-simple text-sm"></i> <span>No APK Attached</span>
+                                    </button>
+                                `}
+                                <button onclick="copyShareLink('${app.id}')" class="bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-bold text-xs py-3 px-6 rounded-xl transition-all flex items-center space-x-2">
+                                    <i class="ph ph-share-network text-sm"></i> <span>Copy Share Link</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-8 bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-100">
+                        <h3 class="text-base font-black text-slate-800 mb-3">About this application</h3>
+                        <p class="text-slate-600 text-sm whitespace-pre-wrap leading-relaxed">${app.fullDescription || 'No description details provided.'}</p>
+                    </div>
+
+                    <div class="mt-8 bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-100">
+                        <h3 class="text-base font-black text-slate-800 mb-6">User Reviews</h3>
+                        
+                        <div class="mb-8 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                            <h4 class="font-bold text-xs text-slate-700 mb-2 uppercase tracking-wide">Write ratings and reviews</h4>
+                            <div class="flex items-center space-x-1.5 mb-4">
+                                ${[1,2,3,4,5].map(star => `
+                                    <i onclick="setRating(${star})" class="ph-fill ph-star text-2xl cursor-pointer transition-colors ${star <= state.reviewForm.rating ? 'text-amber-400' : 'text-slate-200'}"></i>
+                                `).join('')}
+                            </div>
+                            <textarea onkeyup="setReviewText(this.value)" placeholder="Write your verified review..." class="w-full text-xs border border-slate-200 rounded-xl p-3 outline-none focus:border-blue-500 bg-white resize-none" rows="3">${state.reviewForm.comment}</textarea>
+                            <button onclick="submitReview()" class="mt-2 bg-slate-900 hover:bg-black text-white text-[11px] font-bold py-2.5 px-6 rounded-xl transition-colors">Submit Review</button>
+                        </div>
+
+                        <div class="space-y-4">
+                            ${appReviews.length > 0 ? appReviews.map(r => `
+                                <div class="border-b border-slate-100 pb-4 last:border-none last:pb-0">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-black text-xs text-slate-600">${r.userName.charAt(0)}</div>
+                                            <span class="font-bold text-slate-800 text-xs">${r.userName}</span>
+                                        </div>
+                                        <div class="flex">
+                                            ${[...Array(5)].map((_, i) => `<i class="ph-fill ph-star text-xs ${i < r.rating ? 'text-amber-400' : 'text-slate-100'}"></i>`).join('')}
+                                        </div>
+                                    </div>
+                                    <p class="text-slate-600 text-xs leading-relaxed">${r.comment}</p>
+                                </div>
+                            `).join('') : '<p class="text-slate-400 text-center py-4 text-xs font-semibold">No community reviews yet. Be the first to share your rating!</p>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        // --- STREAMING_CHUNK: Dynamic Google & Email Firebase Sign-In Interface ---
+        const AccountView = () => {
+            window.toggleAuthMode = () => {
+                state.authMode = state.authMode === 'login' ? 'signup' : 'login';
+                render();
+            };
+
+            window.handleAuthInput = (field, val) => {
+                state[field] = val;
+            };
+
+            window.handleFirebaseEmailAuth = async () => {
+                if (!state.authEmail || !state.authPassword) {
+                    return showToast("Please fill in email and password", "error");
+                }
+                try {
+                    if (state.authMode === 'signup') {
+                        await createUserWithEmailAndPassword(auth, state.authEmail, state.authPassword);
+                        showToast("Account signed up successfully!", "success");
+                    } else {
+                        await signInWithEmailAndPassword(auth, state.authEmail, state.authPassword);
+                        showToast("Signed in successfully!", "success");
+                    }
+                } catch (e) {
+                    showToast(e.message, "error");
+                }
+            };
+
+            window.handleGooglePopupAuth = async () => {
+                try {
+                    await signInWithPopup(auth, googleProvider);
+                    showToast("Google Sign-In Successful!", "success");
+                } catch (e) {
+                    showToast("Authentication canceled or pop-up blocked.", "error");
+                }
+            };
+
+            window.handleSignOutUser = async () => {
+                await signOut(auth);
+                showToast("Logged out successfully");
+                navigate('home');
+            };
+
+            window.handlePubFormChange = (field, val) => { state.pubForm[field] = val; };
+            window.handlePubAvatar = (e) => {
+                if(e.target.files[0]) fileToBase64(e.target.files[0], (res) => { state.pubForm.avatarUrl = res; render(); });
+            };
+
+            window.becomePublisher = async () => {
+                if (!state.pubForm.name.trim() || !state.pubForm.email.trim()) {
+                    return showToast("Studio Name and Email are required", "error");
+                }
+                const newPubId = state.currentUser.id; 
+                const newPub = { 
+                    id: newPubId, 
+                    name: state.pubForm.name, 
+                    email: state.pubForm.email, 
+                    avatarUrl: state.pubForm.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=240' 
+                };
+
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'publishers', newPubId), newPub);
+                state.currentUser.isPublisher = true;
+                state.currentUser.publisherId = newPubId;
+                state.currentUser.name = newPub.name;
+                showToast("Account onboarded to developer ecosystem!", "success");
+                navigate('publisher');
+            };
+
+            // Authenticated user but not yet a registered publisher
+            const authenticatedButNotPublisherUI = () => `
+                <div>
+                    <h4 class="font-extrabold text-slate-800 text-lg mb-1">Developer Console Setup</h4>
+                    <p class="text-slate-400 text-xs mb-6 leading-relaxed">Setup your console profile to start deploying live packages onto KIRE.</p>
+                    
+                    <div class="space-y-4">
+                        <div class="flex flex-col items-center">
+                            <label class="w-20 h-20 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center overflow-hidden relative cursor-pointer hover:bg-slate-100 transition-colors">
+                                ${state.pubForm.avatarUrl ? `<img src="${state.pubForm.avatarUrl}" class="w-full h-full object-cover">` : `
+                                    <div class="flex flex-col items-center text-slate-400">
+                                        <i class="ph ph-upload-simple text-xl mb-0.5"></i>
+                                        <span class="text-[8px] font-extrabold">UPLOAD</span>
+                                    </div>
+                                `}
+                                <input type="file" accept="image/*" onchange="handlePubAvatar(event)" class="hidden">
+                            </label>
+                            <span class="text-[10px] text-slate-400 font-bold mt-2">Avatar Profile Photo</span>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Developer Studio Name *</label>
+                            <input type="text" value="${state.pubForm.name}" onkeyup="handlePubFormChange('name', this.value)" class="w-full border border-slate-200 text-xs rounded-xl p-3 outline-none focus:border-blue-500 transition-all bg-slate-50 focus:bg-white" placeholder="e.g. Meta Gaming Inc.">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Official Contact Email *</label>
+                            <input type="email" value="${state.pubForm.email || state.currentUser.email}" onkeyup="handlePubFormChange('email', this.value)" class="w-full border border-slate-200 text-xs rounded-xl p-3 outline-none focus:border-blue-500 transition-all bg-slate-50 focus:bg-white" placeholder="developer@studio.com">
+                        </div>
+                        <button onclick="becomePublisher()" class="w-full bg-blue-600 text-white font-bold text-xs py-3.5 rounded-xl mt-2 hover:bg-blue-700 transition-colors shadow-lg">
+                            Activate Console Profile
+                        </button>
+                        <button onclick="handleSignOutUser()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs py-2.5 rounded-xl transition-all">Sign Out</button>
+                    </div>
+                </div>
+            `;
+
+            // Completely Unauthenticated user login module mapping Screenshot 2026-06-24 135906.jpg
+            const unauthenticatedLoginUI = () => `
+                <div>
+                    <h4 class="font-extrabold text-slate-800 text-lg mb-1">${state.authMode === 'login' ? 'Sign In to Developer Portal' : 'Register Developer Profile'}</h4>
+                    <p class="text-slate-400 text-xs mb-6 leading-relaxed">Sign in with Google or create a local credentials package.</p>
+                    
+                    <div class="space-y-4">
+                        <button onclick="handleGooglePopupAuth()" class="w-full flex items-center justify-center space-x-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold py-3 rounded-xl transition-colors text-xs shadow-sm">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                            <span>Authenticate with Google</span>
+                        </button>
+                        
+                        <div class="relative flex items-center py-2">
+                            <div class="flex-grow border-t border-slate-100"></div>
+                            <span class="flex-shrink-0 mx-3 text-[10px] font-extrabold text-slate-300 tracking-wider">OR ENTER NATIVELY</span>
+                            <div class="flex-grow border-t border-slate-100"></div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Official Email *</label>
+                            <input type="email" onkeyup="handleAuthInput('authEmail', this.value)" class="w-full border border-slate-200 text-xs rounded-xl p-3 outline-none focus:border-blue-500 transition-all bg-slate-50 focus:bg-white" placeholder="developer@studio.com">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1.5">Secure Password *</label>
+                            <input type="password" onkeyup="handleAuthInput('authPassword', this.value)" class="w-full border border-slate-200 text-xs rounded-xl p-3 outline-none focus:border-blue-500 transition-all bg-slate-50 focus:bg-white" placeholder="••••••••">
+                        </div>
+                        <button onclick="handleFirebaseEmailAuth()" class="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-xl mt-2 hover:bg-black transition-colors shadow-lg">
+                            ${state.authMode === 'login' ? 'Authenticate Native Profile' : 'Register Secure Profile'}
+                        </button>
+                        <p class="text-center text-[11px] font-semibold text-slate-400 mt-2">
+                            ${state.authMode === 'login' ? `Don't have a developer account?` : `Already signed up?`} 
+                            <span onclick="toggleAuthMode()" class="text-blue-600 cursor-pointer hover:underline">
+                                ${state.authMode === 'login' ? 'Sign Up' : 'Log In'}
+                            </span>
+                        </p>
+                    </div>
+                </div>
+            `;
+
+            return `
+                <div class="max-w-xl mx-auto p-6 md:p-12">
+                    <h2 class="text-2xl font-black mb-6 text-slate-800 tracking-tight">Developer Authorization</h2>
+                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+                        ${!state.currentUser.id ? unauthenticatedLoginUI() : (state.currentUser.isPublisher ? `
+                            <div class="text-center py-6">
+                                <div class="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="ph-bold ph-check text-2xl"></i>
+                                </div>
+                                <h3 class="text-lg font-black text-slate-800 mb-1">Developer Console Active</h3>
+                                <p class="text-xs text-slate-400 mb-6">Your real-time developer node is ready.</p>
+                                <div class="flex flex-col gap-2">
+                                    <button onclick="navigate('publisher')" class="bg-slate-900 text-white font-bold text-xs py-3 px-8 rounded-xl hover:bg-black transition-colors shadow-md">
+                                        Open Developer Workspace
+                                    </button>
+                                    <button onclick="handleSignOutUser()" class="text-rose-600 hover:bg-rose-50 font-bold text-xs py-2 rounded-xl transition-all">Sign Out</button>
+                                </div>
+                            </div>
+                        ` : authenticatedButNotPublisherUI())}
+                    </div>
+                </div>
+            `;
+        };
+
+        // --- STREAMING_CHUNK: Real-time publisher dashboard & APK upload package modules ---
+        const PublisherConsole = () => {
+            if (!state.currentUser.isPublisher) return `<script>navigate('account')<\/script>`;
+            
+            const myApps = state.apps.filter(a => a.publisherId === state.currentUser.publisherId);
+            const myAppIds = myApps.map(a => a.id);
+            const myReviews = state.reviews.filter(r => myAppIds.includes(r.appId));
+            const profile = state.publishers.find(p => p.id === state.currentUser.publisherId) || { name: 'Meta Core' };
+
+            window.setPubView = (v) => { state.pubView = v; render(); };
+            window.handleAppForm = (f, v) => { state.appForm[f] = v; render(); };
+            window.handleAppImage = (e, field) => {
+                if(e.target.files[0]) fileToBase64(e.target.files[0], res => { state.appForm[field] = res; render(); });
+            };
+            
+            window.onApkSelected = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const url = URL.createObjectURL(file);
+                    state.appForm.apkLink = url;
+                    state.appForm.apkFileName = file.name;
+                    showToast(`APK file package mapped!`);
+                    render();
+                }
+            };
+
+            window.publishApp = async () => {
+                const f = state.appForm;
+                if (!f.name || !f.shortDesc || !f.logoUrl) {
+                    return showToast("App Name, Short Description, and App Logo are required.", "error");
+                }
+                
+                const newAppId = `app_${Date.now()}`;
+                const newApp = {
+                    id: newAppId,
+                    publisherId: state.currentUser.publisherId,
+                    name: f.name,
+                    packageName: f.pkg || 'com.kire.' + f.name.toLowerCase().replace(/\s+/g, ''),
+                    shortDescription: f.shortDesc,
+                    fullDescription: f.fullDesc || 'No extended package descriptions.',
+                    category: f.category,
+                    price: f.price,
+                    apkLink: f.apkLink || '', 
+                    apkFileName: f.apkFileName || '',
+                    logoUrl: f.logoUrl,
+                    bannerUrl: f.bannerUrl || 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=1000',
+                    rating: 5.0,
+                    reviewsCount: 0,
+                    isFeatured: false
+                };
+                
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'apps', newAppId), newApp);
+                showToast("Application Package deployed live!");
+                copyShareLink(newApp.id);
+                state.pubView = 'dashboard';
+                state.appForm = { name: '', pkg: '', shortDesc: '', fullDesc: '', category: 'Action', price: 'Free', apkLink: '', apkFileName: '', logoUrl: '', bannerUrl: '' };
+                render();
+            };
+
+            window.submitBannerRequest = async (appIdParam) => {
+                const appItem = state.apps.find(a => a.id === appIdParam);
+                if (!appItem.bannerUrl) return showToast("An application requires a Banner asset before requesting placement.", "error");
+                
+                const newReqId = `req_${Date.now()}`;
+                const bannerPayload = {
+                    id: newReqId,
+                    appId: appIdParam,
+                    appName: appItem.name,
+                    publisherId: state.currentUser.publisherId,
+                    publisherName: profile.name,
+                    status: 'pending',
+                    bannerUrl: appItem.bannerUrl,
+                    date: new Date().toISOString()
+                };
+
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerRequests', newReqId), bannerPayload);
+                showToast("Ad Banner requested successfully!");
+            };
+
+            return `
+                <div class="flex h-screen bg-slate-50 overflow-hidden w-full absolute inset-0 z-50">
+                    <div class="w-64 bg-white border-r border-slate-100 flex flex-col flex-shrink-0">
+                        <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+                            <h1 class="text-xl font-black text-blue-600 tracking-tighter">KIRE</h1>
+                            <span class="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded tracking-widest">CONSOLE</span>
+                        </div>
+                        <nav class="flex-1 p-4 space-y-1.5 overflow-y-auto scrollbar-hide">
+                            <button onclick="setPubView('dashboard')" class="w-full flex items-center space-x-3 p-3 rounded-xl transition-colors ${state.pubView === 'dashboard' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}">
+                                <i class="ph ph-squares-four text-lg"></i><span class="text-xs">Dashboard</span>
+                            </button>
+                            <button onclick="setPubView('publish')" class="w-full flex items-center space-x-3 p-3 rounded-xl transition-colors ${state.pubView === 'publish' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}">
+                                <i class="ph ph-upload-simple text-lg"></i><span class="text-xs">Publish App</span>
+                            </button>
+                            <button onclick="setPubView('reviews')" class="w-full flex items-center justify-between p-3 rounded-xl transition-colors ${state.pubView === 'reviews' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600 hover:bg-slate-50'}">
+                                <div class="flex items-center space-x-3"><i class="ph ph-star text-lg"></i><span class="text-xs">Reviews Logs</span></div>
+                                <span class="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">${myReviews.length}</span>
+                            </button>
+                            <hr class="my-4 border-slate-100">
+                            <button onclick="navigate('home')" class="w-full flex items-center space-x-3 p-3 rounded-xl text-rose-600 hover:bg-rose-50 transition-colors">
+                                <i class="ph ph-sign-out text-lg"></i><span class="text-xs font-bold">Exit Console</span>
+                            </button>
+                        </nav>
+                    </div>
+
+                    <div class="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-y-auto">
+                        <div class="sticky top-0 bg-white border-b border-slate-100 p-4 flex justify-between items-center z-10">
+                            <h2 class="font-extrabold text-slate-800 tracking-tight text-sm uppercase">
+                                ${state.pubView === 'publish' ? 'Publish New App' : state.pubView === 'reviews' ? 'User Reviews' : 'Developer Console'}
+                            </h2>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-semibold text-slate-700">${profile.name}</span>
+                                <div class="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs">${profile.name.charAt(0)}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="p-6 md:p-8 max-w-6xl w-full mx-auto pb-24">
+                            ${state.pubView === 'dashboard' ? `
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                                    ${[
+                                        { l: "Active Releases", v: myApps.length, c: "text-blue-600 bg-blue-50/50", i: "ph-app-window" },
+                                        { l: "Total Downloads", v: "482K", c: "text-emerald-500 bg-emerald-50/50", i: "ph-download-simple" },
+                                        { l: "Total Ad Campaigns", v: state.apps.filter(a => a.isFeatured && a.publisherId === state.currentUser.publisherId).length, c: "text-amber-500 bg-amber-50/50", i: "ph-megaphone" },
+                                        { l: "Average Rating", v: "4.8", c: "text-purple-500 bg-purple-50/50", i: "ph-star" }
+                                    ].map(stat => `
+                                        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                                            <div>
+                                                <div class="text-2xl font-black ${stat.c.split(' ')[0]} mb-0.5">${stat.v}</div>
+                                                <div class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">${stat.l}</div>
+                                            </div>
+                                            <div class="w-10 h-10 rounded-xl flex items-center justify-center ${stat.c}"><i class="ph-bold ${stat.i} text-lg"></i></div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                
+                                <h3 class="text-sm font-extrabold text-slate-800 uppercase tracking-wider mb-4">Released App Catalog</h3>
+                                <div class="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm divide-y divide-slate-100">
+                                    ${myApps.length ? myApps.map(app => `
+                                        <div class="p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                                            <div class="flex items-center space-x-4">
+                                                ${AppIconComponent(app.logoUrl, app.name, 'w-12 h-12')}
+                                                <div>
+                                                    <p class="font-bold text-slate-800 text-sm leading-tight">${app.name}</p>
+                                                    <p class="text-[10px] text-slate-400 font-semibold mt-0.5">${app.packageName} • ${app.category} • ${app.price}</p>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="submitBannerRequest('${app.id}')" class="px-4 py-2 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100/80 rounded-lg transition-colors flex items-center space-x-1">
+                                                    <i class="ph ph-megaphone"></i> <span>Request Free Ad Banner</span>
+                                                </button>
+                                                <button onclick="copyShareLink('${app.id}')" class="px-4 py-2 text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center space-x-1">
+                                                    <i class="ph ph-link"></i> <span>Copy Share Link</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('') : '<div class="p-12 text-center text-slate-400 font-semibold text-xs">No app packages initialized yet.</div>'}
+                                </div>
+                            ` : state.pubView === 'publish' ? `
+                                <!-- App deployment form mapping Screenshot 2026-06-24 140254.jpg -->
+                                <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                                    <div class="xl:col-span-2 space-y-6">
+                                        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                                            <h3 class="font-extrabold text-slate-800 text-sm mb-6 flex items-center uppercase tracking-wide"><span class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] mr-2 shadow-md font-bold">1</span> App Information</h3>
+                                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                                <div>
+                                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">App Name *</label>
+                                                    <input type="text" value="${state.appForm.name}" onkeyup="handleAppForm('name', this.value)" class="w-full border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 bg-slate-50 focus:bg-white" placeholder="Enter app name">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Package Name *</label>
+                                                    <input type="text" value="${state.appForm.pkg}" onkeyup="handleAppForm('pkg', this.value)" class="w-full border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 bg-slate-50 focus:bg-white" placeholder="e.g. com.example.app">
+                                                </div>
+                                            </div>
+                                            <div class="mb-4">
+                                                <label class="block text-[11px] font-bold text-slate-600 mb-1">Short Description *</label>
+                                                <input type="text" value="${state.appForm.shortDesc}" onkeyup="handleAppForm('shortDesc', this.value)" class="w-full border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 bg-slate-50 focus:bg-white" placeholder="Max 80 characters" maxlength="80">
+                                            </div>
+                                            <div>
+                                                <label class="block text-[11px] font-bold text-slate-600 mb-1">Full Description</label>
+                                                <textarea onkeyup="handleAppForm('fullDesc', this.value)" rows="4" class="w-full border border-slate-200 rounded-xl p-3 text-xs outline-none focus:border-blue-500 bg-slate-50 focus:bg-white resize-none" placeholder="Provide full breakdown details...">${state.appForm.fullDesc}</textarea>
+                                            </div>
+                                        </div>
+
+                                        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                                            <h3 class="font-extrabold text-slate-800 text-sm mb-6 flex items-center uppercase tracking-wide"><span class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] mr-2 shadow-md font-bold">2</span> Assets & Visuals</h3>
+                                            <div class="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-[11px] font-bold text-slate-600 mb-1.5">App Logo Icon *</label>
+                                                    <label class="border-2 border-dashed ${state.appForm.logoUrl ? 'border-blue-500 bg-blue-50/20' : 'border-slate-200 hover:bg-slate-50'} rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer h-28 relative overflow-hidden transition-all">
+                                                        ${state.appForm.logoUrl ? `<img src="${state.appForm.logoUrl}" class="absolute inset-0 w-full h-full object-contain p-2">` : `
+                                                            <i class="ph ph-image text-xl text-blue-500 mb-1"></i>
+                                                            <span class="text-[10px] font-bold text-blue-600">Choose App Logo</span>
+                                                        `}
+                                                        <input type="file" class="hidden" accept="image/*" onchange="handleAppImage(event, 'logoUrl')">
+                                                    </label>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-[11px] font-bold text-slate-600 mb-1.5">Feature Banner</label>
+                                                    <label class="border-2 border-dashed ${state.appForm.bannerUrl ? 'border-blue-500 bg-blue-50/20' : 'border-slate-200 hover:bg-slate-50'} rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer h-28 relative overflow-hidden transition-all">
+                                                        ${state.appForm.bannerUrl ? `<img src="${state.appForm.bannerUrl}" class="absolute inset-0 w-full h-full object-cover">` : `
+                                                            <i class="ph ph-upload-simple text-xl text-slate-400 mb-1"></i>
+                                                            <span class="text-[10px] font-bold text-slate-500">Choose Banner Image</span>
+                                                        `}
+                                                        <input type="file" class="hidden" accept="image/*" onchange="handleAppImage(event, 'bannerUrl')">
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                                            <h3 class="font-extrabold text-slate-800 text-sm mb-4 flex items-center uppercase tracking-wide"><span class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] mr-2 shadow-md font-bold">3</span> App Package</h3>
+                                            <p class="text-[10px] text-slate-400 font-bold mb-4">Select local .apk installers to link directly to your release card.</p>
+                                            <label class="border-2 border-dashed ${state.appForm.apkFileName ? 'border-emerald-500 bg-emerald-50/25' : 'border-slate-200 hover:bg-slate-50'} rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all">
+                                                <i class="ph ph-android-logo text-3xl ${state.appForm.apkFileName ? 'text-emerald-500' : 'text-slate-400'} mb-2"></i>
+                                                <span class="text-xs font-bold text-slate-700">${state.appForm.apkFileName || 'Upload APK Binary Package'}</span>
+                                                <span class="text-[9px] text-slate-400 mt-1">Accepts native installer packages</span>
+                                                <input type="file" class="hidden" accept=".apk" onchange="onApkSelected(event)">
+                                            </label>
+                                        </div>
+
+                                        <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                                            <h3 class="font-extrabold text-slate-800 text-sm mb-6 flex items-center uppercase tracking-wide"><span class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] mr-2 shadow-md font-bold">4</span> Pricing & Categories</h3>
+                                            <div class="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Primary Category *</label>
+                                                    <select onchange="handleAppForm('category', this.value)" class="w-full border border-slate-200 rounded-xl p-3 text-xs outline-none bg-slate-50 font-semibold text-slate-700">
+                                                        ${['Action','Adventure','Racing','Puzzle','Strategy','Sports','Social','Productivity'].map(c=>`<option ${state.appForm.category===c?'selected':''}>${c}</option>`).join('')}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Pricing Model *</label>
+                                                    <select onchange="handleAppForm('price', this.value)" class="w-full border border-slate-200 rounded-xl p-3 text-xs outline-none bg-slate-50 font-semibold text-slate-700">
+                                                        <option>Free</option>
+                                                        <option>$0.99</option>
+                                                        <option>$4.99</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex justify-end pt-2">
+                                            <button onclick="publishApp()" class="bg-blue-600 text-white font-bold text-xs py-3 px-10 rounded-xl hover:bg-blue-700 flex items-center space-x-1.5 shadow-lg">
+                                                <i class="ph ph-rocket"></i> <span>Publish Real-time Package</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="hidden xl:block">
+                                        <div class="sticky top-24">
+                                            <h3 class="font-extrabold text-slate-400 uppercase tracking-widest text-[10px] mb-4">Device Preview</h3>
+                                            <div class="w-[280px] h-[580px] border-[10px] border-slate-900 rounded-[2.5rem] bg-white overflow-hidden relative flex flex-col shadow-2xl">
+                                                <div class="h-1/2 w-full bg-slate-100 relative">
+                                                    ${state.appForm.bannerUrl ? `<img src="${state.appForm.bannerUrl}" class="w-full h-full object-cover">` : `<div class="absolute inset-0 flex items-center justify-center text-slate-300"><i class="ph ph-image text-4xl"></i></div>`}
+                                                </div>
+                                                <div class="flex-1 p-5 -mt-6 bg-white rounded-t-3xl relative z-10 flex flex-col shadow-[-10px_0_20px_rgba(0,0,0,0.03)]">
+                                                    <div class="flex items-end space-x-3 mb-4">
+                                                        ${AppIconComponent(state.appForm.logoUrl, 'Preview', 'w-16 h-16 shadow-lg border-2 border-white -mt-10')}
+                                                        <div class="pb-1 overflow-hidden">
+                                                            <h4 class="font-black text-sm text-slate-800 leading-tight truncate">${state.appForm.name || 'App Title'}</h4>
+                                                            <p class="text-blue-600 text-[10px] font-bold truncate">${profile.name}</p>
+                                                        </div>
+                                                    </div>
+                                                    <p class="text-[11px] text-slate-400 mb-6 flex-1 line-clamp-4 leading-relaxed">${state.appForm.shortDesc || 'Your visual package summary will render here.'}</p>
+                                                    <button class="w-full bg-blue-600 text-white py-3 rounded-full text-xs font-bold">Install</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="space-y-4">
+                                    ${myReviews.length ? myReviews.map(r => `
+                                        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+                                            <div class="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <span class="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded tracking-wide uppercase inline-block mb-1.5">${state.apps.find(a=>a.id===r.appId)?.name}</span>
+                                                    <div class="font-bold text-slate-800 text-sm">${r.userName}</div>
+                                                </div>
+                                                <div class="flex">${[...Array(5)].map((_, i) => `<i class="ph-fill ph-star text-xs ${i < r.rating ? 'text-amber-400' : 'text-slate-200'}"></i>`).join('')}</div>
+                                            </div>
+                                            <p class="text-slate-600 text-xs leading-relaxed font-medium">${r.comment}</p>
+                                        </div>
+                                    `).join('') : '<div class="p-12 text-center text-slate-400 font-semibold text-xs bg-white border border-slate-100 rounded-2xl">No customer reviews published yet.</div>'}
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        // --- STREAMING_CHUNK: Super Admin Access Controls Configuration ---
+        const AdminLogin = () => {
+            window.checkAdminPwd = () => {
+                const pass = document.getElementById('adminPwd').value;
+                if (pass === '2010BITAN') {
+                    state.view = 'admin';
+                    state.adminView = 'apps';
+                    showToast("Access Unlocked! Super Admin module loaded.", "success");
+                    render();
+                } else {
+                    showToast('Invalid Access Credentials!', 'error');
+                }
+            };
+            return `
+                <div class="flex h-screen items-center justify-center bg-slate-900 absolute inset-0 z-50">
+                    <div class="bg-white p-8 md:p-10 rounded-[2.5rem] max-w-sm w-full shadow-2xl border border-slate-100">
+                        <div class="flex items-center justify-center mb-6 text-rose-500"><i class="ph-fill ph-shield-warning text-6xl"></i></div>
+                        <h2 class="text-2xl font-black text-center mb-2 text-slate-800 tracking-tight">Super Admin Portal</h2>
+                        <p class="text-xs text-slate-400 text-center mb-6 leading-relaxed">Security credentials required.</p>
+                        
+                        <input type="password" id="adminPwd" onkeydown="event.key==='Enter'&&checkAdminPwd()" placeholder="••••••••" class="w-full border border-slate-200 rounded-xl p-4 mb-4 text-center tracking-widest text-lg font-black outline-none focus:border-slate-800 bg-slate-50 focus:bg-white transition-all font-mono">
+                        <button onclick="checkAdminPwd()" class="w-full bg-slate-900 hover:bg-black text-white text-xs font-bold py-4 rounded-xl transition-colors shadow-lg">Authenticate Profile</button>
+                    </div>
+                </div>
+            `;
+        };
+
+        const AdminDashboard = () => {
+            window.setAdminView = (v) => { state.adminView = v; render(); };
+            
+            window.delApp = async (id) => {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'apps', id));
+                showToast("Application Package deleted!", "success");
+            };
+            
+            window.delRev = async (id) => {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reviews', id));
+                showToast("Feedback cleared!", "success");
+            };
+            
+            window.openEditModal = (id) => { 
+                state.adminEditApp = JSON.parse(JSON.stringify(state.apps.find(a=>a.id===id))); 
+                render(); 
+            };
+            
+            window.closeEditModal = () => { state.adminEditApp = null; render(); };
+            window.handleEditForm = (f, v) => { state.adminEditApp[f] = v; };
+            
+            window.saveAppEdit = async () => {
+                const targetDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'apps', state.adminEditApp.id);
+                
+                await updateDoc(targetDocRef, {
+                    logoUrl: state.adminEditApp.logoUrl,
+                    bannerUrl: state.adminEditApp.bannerUrl
+                });
+
+                state.adminEditApp = null;
+                showToast("Visual assets modified in production database!");
+                render();
+            };
+
+            window.approveBanner = async (reqId, targetAppId) => {
+                const targetDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'apps', targetAppId);
+                const reqDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'bannerRequests', reqId);
+
+                await updateDoc(targetDocRef, { isFeatured: true });
+                await deleteDoc(reqDocRef);
+
+                showToast("Marketing Request Approved! Campaign active on homepage.", "success");
+                render();
+            };
+
+            window.rejectBanner = async (id) => {
+                const reqDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'bannerRequests', id);
+                await deleteDoc(reqDocRef);
+                showToast("Marketing Request Rejected!");
+                render();
+            };
+
+            window.togglePublisherApps = (pubId) => {
+                state.expandedPublisherId = state.expandedPublisherId === pubId ? null : pubId;
+                render();
+            };
+
+            return `
+                <div class="flex h-screen bg-slate-50 absolute inset-0 z-50">
+                    <div class="w-64 bg-slate-950 text-slate-300 flex flex-col flex-shrink-0 shadow-2xl">
+                        <div class="p-6 border-b border-slate-900 text-white font-black text-sm flex items-center tracking-wider"><i class="ph-fill ph-shield-check mr-2 text-rose-500 text-xl"></i> DEV SECURITY ADMIN</div>
+                        <nav class="flex-1 p-4 space-y-2">
+                            <button onclick="setAdminView('apps')" class="w-full text-left p-3 rounded-xl text-xs font-bold tracking-wide transition-colors ${state.adminView==='apps'?'bg-slate-900 text-white border-l-4 border-rose-500':'hover:bg-slate-900/50'}">1. Manage Apps & Reviews</button>
+                            <button onclick="setAdminView('publishers')" class="w-full text-left p-3 rounded-xl text-xs font-bold tracking-wide transition-colors ${state.adminView==='publishers'?'bg-slate-900 text-white border-l-4 border-rose-500':'hover:bg-slate-900/50'}">2. Publishers Directory</button>
+                            <button onclick="setAdminView('banners')" class="w-full text-left p-3 rounded-xl text-xs font-bold tracking-wide transition-colors flex justify-between items-center ${state.adminView==='banners'?'bg-slate-900 text-white border-l-4 border-rose-500':'hover:bg-slate-900/50'}"><span>4. Banner Ad Requests</span> <span class="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">${state.bannerRequests.length}</span></button>
+                            <button onclick="navigate('home')" class="w-full text-left p-3 rounded-xl text-xs font-bold text-rose-400 mt-10 hover:bg-slate-900/50 border border-rose-500/20">Exit Secure Workspace</button>
+                        </nav>
+                    </div>
+
+                    <div class="flex-1 p-8 md:p-10 overflow-y-auto bg-slate-50">
+                        ${state.adminView === 'apps' ? `
+                            <h2 class="text-xl font-black text-slate-800 tracking-tight border-b border-slate-200 pb-4 mb-6">Production Logs: Released Packages</h2>
+                            <div class="space-y-6">
+                                ${state.apps.map(appItem => `
+                                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 pb-4 border-b border-slate-100">
+                                            <div class="flex items-center space-x-3">
+                                                <img src="${appItem.logoUrl}" class="w-12 h-12 rounded-xl bg-slate-100 object-cover shadow-sm">
+                                                <div>
+                                                    <h3 class="font-extrabold text-slate-800 text-sm leading-tight">${appItem.name}</h3>
+                                                    <p class="text-[10px] text-slate-400 font-bold mt-1">Publisher ID: ${appItem.publisherId} • Package Link: ${appItem.packageName}</p>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2 w-full md:w-auto">
+                                                <button onclick="openEditModal('${appItem.id}')" class="flex-1 md:flex-none px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-extrabold tracking-wide hover:bg-blue-100/80 transition-colors">Edit Visual Links</button>
+                                                <button onclick="delApp('${appItem.id}')" class="flex-1 md:flex-none px-4 py-2 bg-rose-50 text-rose-600 rounded-lg text-[10px] font-extrabold tracking-wide hover:bg-rose-100/80 transition-colors">Delete Release</button>
+                                            </div>
+                                        </div>
+                                        <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                            <h4 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-3">Live Reviews (${state.reviews.filter(r=>r.appId===appItem.id).length})</h4>
+                                            <div class="space-y-2">
+                                                ${state.reviews.filter(r=>r.appId===appItem.id).map(rev => `
+                                                    <div class="flex justify-between items-center text-xs py-2 bg-white px-4 rounded-lg border border-slate-100">
+                                                        <span class="flex-1 truncate text-slate-600"><strong class="mr-2 text-slate-800">${rev.userName}:</strong>${rev.comment}</span>
+                                                        <span class="text-amber-500 font-bold mx-4 bg-amber-50 px-2 py-0.5 rounded text-[10px]">${rev.rating}★</span>
+                                                        <button onclick="delRev('${rev.id}')" class="text-rose-400 hover:text-rose-600 transition-colors"><i class="ph-bold ph-trash"></i></button>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : state.adminView === 'publishers' ? `
+                            <h2 class="text-xl font-black text-slate-800 tracking-tight border-b border-slate-200 pb-4 mb-6">Production Logs: Onboarded Publishers</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                ${state.publishers.map(pub => {
+                                    const pubAppsList = state.apps.filter(a => a.publisherId === pub.id);
+                                    const isExpanded = state.expandedPublisherId === pub.id;
+                                    return `
+                                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                            <div class="flex items-center justify-between cursor-pointer" onclick="togglePublisherApps('${pub.id}')">
+                                                <div class="flex items-center space-x-3">
+                                                    <div class="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-extrabold text-sm">${pub.name.charAt(0)}</div>
+                                                    <div>
+                                                        <h3 class="font-extrabold text-slate-800 text-sm leading-tight">${pub.name}</h3>
+                                                        <p class="text-[10px] text-slate-400 font-bold mt-0.5">${pub.email} • ID: ${pub.id}</p>
+                                                    </div>
+                                                </div>
+                                                <i class="ph ph-caret-down text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}"></i>
+                                            </div>
+                                            
+                                            ${isExpanded ? `
+                                                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-4 animate-fadeIn">
+                                                    <strong class="text-[10px] text-slate-400 uppercase tracking-wider mb-2 block">Released App Packages (${pubAppsList.length})</strong>
+                                                    <ul class="text-xs font-semibold text-slate-600 space-y-1.5">
+                                                        ${pubAppsList.length ? pubAppsList.map(a => `<li class="flex items-center"><i class="ph-bold ph-caret-right text-slate-400 mr-1 text-[9px]"></i> ${a.name}</li>`).join('') : '<li class="text-slate-400 italic">No packages published yet</li>'}
+                                                    </ul>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : `
+                            <h2 class="text-xl font-black text-slate-800 tracking-tight border-b border-slate-200 pb-4 mb-6">Marketing Campaign Requests</h2>
+                            <div class="space-y-4">
+                                ${state.bannerRequests.length === 0 ? '<div class="p-12 text-center bg-white rounded-2xl text-slate-400 font-semibold text-xs border border-slate-100 shadow-sm">No promotional requests pending.</div>' : 
+                                    state.bannerRequests.map(req => {
+                                        return `
+                                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-6">
+                                                <div class="flex items-center space-x-4 w-full md:w-auto">
+                                                    ${req.bannerUrl ? `<img src="${req.bannerUrl}" class="w-40 h-20 object-cover rounded-xl shadow-sm border border-slate-100">` : `<div class="w-40 h-20 bg-slate-50 rounded-xl flex items-center justify-center text-[10px] font-bold text-slate-300">No banner visual linked</div>`}
+                                                    <div>
+                                                        <h4 class="font-extrabold text-slate-800 text-sm leading-tight">${req.appName}</h4>
+                                                        <p class="text-[10px] text-slate-400 font-bold mt-1">Publisher: <span class="text-blue-600 font-bold">${req.publisherName}</span></p>
+                                                    </div>
+                                                </div>
+                                                <div class="flex space-x-2 w-full md:w-auto">
+                                                    <button onclick="approveBanner('${req.id}', '${req.appId}')" class="flex-1 md:flex-none px-5 py-3 bg-slate-900 hover:bg-black text-white text-[10px] font-bold rounded-xl shadow-md transition-colors">Approve & Feature</button>
+                                                    <button onclick="rejectBanner('${req.id}')" class="flex-1 md:flex-none px-5 py-3 bg-rose-50 text-rose-600 text-[10px] font-bold rounded-xl hover:bg-rose-100/80 transition-colors">Reject Request</button>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')
+                                }
+                            </div>
+                        `}
+                    </div>
+
+                    <!-- Asset Edit Modal Overlay -->
+                    ${state.adminEditApp ? `
+                        <div class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+                            <div class="bg-white p-6 md:p-8 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100">
+                                <h3 class="text-base font-black mb-6 text-slate-800">Edit App Visuals: <span class="text-blue-600 font-bold">${state.adminEditApp.name}</span></h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-[11px] font-bold text-slate-600 mb-1">App Logo URL</label>
+                                        <input type="text" value="${state.adminEditApp.logoUrl}" onkeyup="handleEditForm('logoUrl', this.value)" class="w-full border border-slate-200 p-3 rounded-xl text-xs outline-none focus:border-blue-500 font-sans">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-bold text-slate-600 mb-1">Feature Banner URL</label>
+                                        <input type="text" value="${state.adminEditApp.bannerUrl}" onkeyup="handleEditForm('bannerUrl', this.value)" class="w-full border border-slate-200 p-3 rounded-xl text-xs outline-none focus:border-blue-500 font-sans">
+                                    </div>
+                                </div>
+                                <div class="mt-6 flex justify-end space-x-2">
+                                    <button onclick="closeEditModal()" class="px-5 py-2.5 bg-slate-50 border border-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-100 transition-colors">Cancel</button>
+                                    <button onclick="saveAppEdit()" class="px-5 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-colors shadow-md">Apply visual changes</button>
+                                </div>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        };
+
+        // --- STREAMING_CHUNK: SPA viewport render router ---
+        function render() {
+            const root = document.getElementById('app');
+            let content = '';
+
+            if (state.view === 'admin_login') {
+                content = AdminLogin();
+            } else if (state.view === 'admin') {
+                content = AdminDashboard();
+            } else if (state.view === 'publisher') {
+                content = PublisherConsole();
+            } else {
+                let mainView = '';
+                if (state.view === 'home') mainView = HomeView();
+                else if (state.view === 'app_details') mainView = AppDetailsView();
+                else if (state.view === 'account') mainView = AccountView();
+
+                content = `
+                    ${Sidebar()}
+                    <div class="flex-1 flex flex-col min-w-0 bg-slate-50">
+                        ${Topbar()}
+                        <main class="flex-1 overflow-x-hidden overflow-y-auto">
+                            ${mainView}
+                        </main>
+                    </div>
+                `;
+            }
+
+            root.innerHTML = content;
+
+            // Trigger rotating multi-banner carousel when homepage is mounted
+            if (state.view === 'home') {
+                startCarouselRotation();
+            }
+        }
+    </script>
+</body>
+</html>
